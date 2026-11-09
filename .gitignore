@@ -1,0 +1,55 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller / Build Artifacts
+build/
+dist/
+*.spec
+
+# Personal Network Logs & Monitoring Data (STRICT PRIVACY GUARANTEE)
+*.csv
+net_log.csv
+speed_log.csv
+old/
+reports/
+*.db
+netpulse_cache.db
+netpulse_cache.db-wal
+netpulse_cache.db-shm
+
+# Configuration containing subscriber personal info (name, home address)
+netpulse_settings.json
+
+# Local Application Logs containing public / local IPs
+*.log
+netpulse.log
+monitor.log
+
+# Legacy reports & temporary test artifacts
+net_report.png
+net_summary.txt
+test_*.pdf
+test_*.png
+test_*.csv
+*.pid
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# Windows system files
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# IDE / Editor configurations
+.vscode/
+.idea/
+*.suo
+*.user
+*.sublime-project
+*.sublime-workspace
