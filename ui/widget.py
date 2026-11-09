@@ -6,8 +6,8 @@ import os
 from datetime import datetime
 from typing import Any, List, Optional, Tuple
 
-from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtGui import QCursor, QFont, QGuiApplication, QMouseEvent
+from PySide6.QtCore import QPoint, Qt, QTimer, Signal
+from PySide6.QtGui import QCloseEvent, QCursor, QFont, QGuiApplication, QHideEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -84,11 +84,57 @@ class DesktopWidget(QWidget):
         self._today_median_ping: Optional[float] = None
         self._today_checks: int = 0
         self._last_speed_record: Optional[SpeedRecord] = None
+        self._explicit_hide: bool = False
 
         self._init_window_flags()
         self._init_ui()
         self._apply_config_options()
         self._restore_position()
+
+    def show_widget(self) -> None:
+        """Explicitly show widget and ensure it is raised above other windows."""
+        self._explicit_hide = False
+        self.config.widget_visible = True
+        self.config.save(self.settings_path)
+        self.show()
+        self.raise_()
+
+    def hide_widget(self) -> None:
+        """Explicitly hide widget when requested by user."""
+        self._explicit_hide = True
+        self.config.widget_visible = False
+        self.config.save(self.settings_path)
+        self.hide()
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        """Prevent involuntary hiding when Windows sends minimize/hide on Win+D or focus shift."""
+        super().hideEvent(event)
+        if not self._explicit_hide and self.config.widget_visible:
+            QTimer.singleShot(150, self._restore_if_needed)
+
+    def _restore_if_needed(self) -> None:
+        """Restore visibility if widget was minimized or hidden by the OS."""
+        if not self._explicit_hide and self.config.widget_visible and not self.isVisible():
+            self.show()
+            self.raise_()
+
+    def changeEvent(self, event: Any) -> None:
+        """Restore window state if minimized by Windows."""
+        if event.type() == event.Type.WindowStateChange:
+            if self.isMinimized() and self.config.widget_visible and not self._explicit_hide:
+                self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
+                self.showNormal()
+                self.raise_()
+        super().changeEvent(event)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Prevent widget from being destroyed by OS close events."""
+        event.ignore()
+        if not self._explicit_hide and self.config.widget_visible:
+            self.show()
+            self.raise_()
+        else:
+            self.hide()
 
     def _init_window_flags(self) -> None:
         """Set frameless, translucent, and tool-window flags."""
@@ -229,7 +275,7 @@ class DesktopWidget(QWidget):
         x = self.config.widget_pos_x
         y = self.config.widget_pos_y
 
-        if x >= 0 and y >= 0:
+        if x is not None and y is not None:
             point = QPoint(x, y)
             for screen in QGuiApplication.screens():
                 if screen.geometry().contains(point):
@@ -436,7 +482,7 @@ class DesktopWidget(QWidget):
         menu.addSeparator()
 
         act_hide = menu.addAction("Hide Mini Widget")
-        act_hide.triggered.connect(self.hide)
+        act_hide.triggered.connect(self.hide_widget)
 
         act_folder = menu.addAction("Open Data Folder")
         act_folder.triggered.connect(self.open_data_folder_requested.emit)
@@ -448,7 +494,8 @@ class DesktopWidget(QWidget):
 
         menu.exec(QCursor.pos())
 
-    def _toggle_always_on_top(self, checked: bool) -> None:
+    def set_always_on_top(self, checked: bool) -> None:
+        """Set or update always-on-top window flag."""
         self.config.widget_always_on_top = checked
         self.config.save(self.settings_path)
         flags = self.windowFlags()
@@ -457,18 +504,35 @@ class DesktopWidget(QWidget):
         else:
             flags &= ~Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)
-        self.show()
+        if not self._explicit_hide and self.config.widget_visible:
+            self.show()
+            self.raise_()
 
-    def _toggle_locked(self, checked: bool) -> None:
-        self.config.widget_locked = checked
+    def set_locked(self, locked: bool) -> None:
+        """Lock or unlock widget dragging."""
+        self.config.widget_locked = locked
         self.config.save(self.settings_path)
 
-    def _set_opacity(self, opacity: float) -> None:
+    def set_opacity(self, opacity: float) -> None:
+        """Set background card opacity."""
         self.config.widget_opacity = opacity
         self.config.save(self.settings_path)
         self._update_card_style()
 
-    def _toggle_click_through(self, checked: bool) -> None:
+    def set_click_through(self, checked: bool) -> None:
+        """Set click-through mode."""
         self.config.widget_click_through = checked
         self.config.save(self.settings_path)
         self._apply_click_through(checked)
+
+    def _toggle_always_on_top(self, checked: bool) -> None:
+        self.set_always_on_top(checked)
+
+    def _toggle_locked(self, checked: bool) -> None:
+        self.set_locked(checked)
+
+    def _set_opacity(self, opacity: float) -> None:
+        self.set_opacity(opacity)
+
+    def _toggle_click_through(self, checked: bool) -> None:
+        self.set_click_through(checked)

@@ -83,6 +83,8 @@ class NetPulseApp:
         )
 
         self._last_summary_time: float = 0.0
+        self._summary_worker: Optional[AsyncWorker] = None
+        self._watchdog_timer: Optional[QTimer] = None
 
         self._wire_ui_signals()
         self._seed_initial_data()
@@ -92,7 +94,7 @@ class NetPulseApp:
         """Scan all CSV files into SQLite cache ONCE in a background thread."""
         def worker() -> None:
             self.storage.sync_from_csvs()
-            self._refresh_today_summary(force=True)
+            QTimer.singleShot(0, lambda: self._refresh_today_summary(force=True))
 
         t = threading.Thread(target=worker, daemon=True, name="StartupCSVSyncThread")
         t.start()
@@ -212,6 +214,7 @@ class NetPulseApp:
             return summarize(today_records) if today_records else None
 
         def on_done(stats: Optional[Any]) -> None:
+            self._summary_worker = None
             if stats:
                 self.widget.set_today_summary(
                     uptime_pct=stats.uptime_pct,
@@ -219,8 +222,13 @@ class NetPulseApp:
                     checks=stats.checks,
                 )
 
+        def on_error(err: str) -> None:
+            self._summary_worker = None
+
         worker = AsyncWorker(background_calc)
+        self._summary_worker = worker
         worker.signals.finished.connect(on_done)
+        worker.signals.error.connect(on_error)
         QThreadPool.globalInstance().start(worker)
 
     def _trigger_speed_test_async(self) -> None:
@@ -241,10 +249,12 @@ class NetPulseApp:
 
     def _toggle_widget(self, visible: bool) -> None:
         """Show or hide the desktop mini widget."""
+        self.config.widget_visible = visible
+        self.config.save(self.settings_path)
         if visible:
-            self.widget.show()
+            self.widget.show_widget()
         else:
-            self.widget.hide()
+            self.widget.hide_widget()
         self.tray.sync_widget_visibility(visible)
 
     def _pause_monitoring(self, duration_sec: Optional[float]) -> None:
@@ -270,11 +280,24 @@ class NetPulseApp:
         self.dashboard.activateWindow()
 
     def start(self) -> None:
-        """Show UI and start background monitoring."""
+        """Show UI and start background monitoring with auto-visibility watchdog."""
         self.tray.show()
         if self.config.widget_visible:
-            self.widget.show()
+            self.widget.show_widget()
         self.engine.start()
+
+        # Watchdog to guarantee desktop widget is never involuntarily hidden by Windows
+        self._watchdog_timer = QTimer()
+        self._watchdog_timer.setInterval(10000)  # Check every 10 seconds
+        self._watchdog_timer.timeout.connect(self._watchdog_check)
+        self._watchdog_timer.start()
+
+    def _watchdog_check(self) -> None:
+        """Keep desktop widget visible and raised if enabled in config."""
+        if self.config.widget_visible:
+            if not self.widget.isVisible() or self.widget.isMinimized():
+                self.widget.show()
+                self.widget.raise_()
 
     def quit(self) -> None:
         """Clean shutdown: save settings, stop engine, and exit."""
