@@ -275,7 +275,7 @@ class DesktopWidget(QWidget):
         x = self.config.widget_pos_x
         y = self.config.widget_pos_y
 
-        if x is not None and y is not None:
+        if x is not None and y is not None and not (x == -1 and y == -1):
             point = QPoint(x, y)
             for screen in QGuiApplication.screens():
                 if screen.geometry().contains(point):

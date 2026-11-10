@@ -86,7 +86,7 @@ def enable_autostart(exe_path: str) -> bool:
     app_name = "NetPulse"
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{exe_path}"')
+            winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{exe_path}" --autostart')
         
         # Remove old legacy NetMonitor.vbs from Startup folder if present
         app_data = os.environ.get("APPDATA", "")

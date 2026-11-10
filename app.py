@@ -15,7 +15,11 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from core.config import Config
 from core.data_dir import get_default_data_dir, migrate_existing_data_if_needed
-from core.instance import SingleInstanceLock, check_legacy_monitor_running
+from core.instance import (
+    SingleInstanceLock,
+    check_legacy_monitor_running,
+    signal_existing_instance_show_dashboard,
+)
 from core.monitor import MonitorEngine
 from core.notifier import NotificationManager
 from core.stats import summarize
@@ -268,16 +272,31 @@ class NetPulseApp:
         self.config.save(self.settings_path)
 
     def _show_dashboard(self) -> None:
-        """Display the main Dashboard window."""
+        """Display the main Dashboard window and bring to front."""
         self.dashboard.show()
-        self.dashboard.raise_()
+        self.dashboard.showNormal()
         self.dashboard.activateWindow()
+        self.dashboard.raise_()
+        if self.config.widget_visible:
+            self.widget.show_widget()
 
-    def start(self) -> None:
+    def _check_show_dashboard_request(self) -> None:
+        """Check for external trigger to pop up Dashboard window from a second instance."""
+        trigger_file = os.path.join(self.base_dir, "show_dashboard.req")
+        if os.path.exists(trigger_file):
+            try:
+                os.remove(trigger_file)
+            except Exception:
+                pass
+            self._show_dashboard()
+
+    def start(self, show_dashboard: bool = False) -> None:
         """Show UI and start background monitoring with auto-visibility watchdog."""
         self.tray.show()
         if self.config.widget_visible:
             self.widget.show_widget()
+        if show_dashboard:
+            self._show_dashboard()
         self.engine.start()
 
         # Watchdog to guarantee desktop widget is never involuntarily hidden by Windows
@@ -285,6 +304,12 @@ class NetPulseApp:
         self._watchdog_timer.setInterval(10000)  # Check every 10 seconds
         self._watchdog_timer.timeout.connect(self._watchdog_check)
         self._watchdog_timer.start()
+
+        # IPC trigger timer to pop up dashboard when user clicks shortcut while app is already running
+        self._ipc_timer = QTimer()
+        self._ipc_timer.setInterval(500)
+        self._ipc_timer.timeout.connect(self._check_show_dashboard_request)
+        self._ipc_timer.start()
 
     def _watchdog_check(self) -> None:
         """Keep desktop widget visible and raised if enabled in config."""
@@ -311,15 +336,18 @@ def main() -> int:
         except Exception:
             pass
 
-    # 1. Enforce single-instance lock for NetPulse
-    lock = SingleInstanceLock()
-    if not lock.acquire():
-        print("[NetPulse] Another instance of NetPulse is already running. Exiting.")
-        return 0
+    is_autostart = "--autostart" in sys.argv or "--minimized" in sys.argv
 
-    # 2. Determine data directory and perform safe first-run migration if needed
+    # 1. Determine data directory and perform safe first-run migration if needed
     base_dir = get_default_data_dir()
     migrate_existing_data_if_needed(target_dir=base_dir, source_dir=os.path.dirname(os.path.abspath(__file__)))
+
+    # 2. Enforce single-instance lock for NetPulse
+    lock = SingleInstanceLock()
+    if not lock.acquire():
+        signal_existing_instance_show_dashboard(base_dir)
+        print("[NetPulse] NetPulse is already running. Activated existing dashboard window.")
+        return 0
 
     # 3. Safe explicit migration check: refuse to run if old net_monitor.py is active
     legacy_running, legacy_pid = check_legacy_monitor_running(base_dir)
@@ -347,9 +375,9 @@ def main() -> int:
         lock.release()
         return 1
 
-    # 3. Launch NetPulse app
+    # 4. Launch NetPulse app
     netpulse = NetPulseApp(base_dir=base_dir)
-    netpulse.start()
+    netpulse.start(show_dashboard=not is_autostart)
 
     exit_code = app.exec()
     lock.release()

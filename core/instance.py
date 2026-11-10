@@ -100,6 +100,17 @@ class SingleInstanceLock:
             self.acquired = False
 
 
+def signal_existing_instance_show_dashboard(base_dir: str) -> None:
+    """Create a temporary trigger file telling the running instance to pop up the dashboard."""
+    import time
+    trigger_file = os.path.join(base_dir, "show_dashboard.req")
+    try:
+        with open(trigger_file, "w", encoding="utf-8") as f:
+            f.write(str(time.time()))
+    except Exception:
+        pass
+
+
 class AutostartManager:
     """Manages Windows Registry autostart (HKCU Run) and legacy VBS cleanup."""
 
@@ -111,7 +122,15 @@ class AutostartManager:
         """Determine command line string to launch NetPulse on Windows startup."""
         if getattr(sys, "frozen", False):
             # PyInstaller binary
-            return f'"{sys.executable}"'
+            return f'"{sys.executable}" --autostart'
+
+        # Running from source: use pythonw if available so no console window flashes
+        python_exe = sys.executable
+        pythonw_cand = os.path.join(os.path.dirname(python_exe), "pythonw.exe")
+        exe_to_use = pythonw_cand if os.path.exists(pythonw_cand) else python_exe
+
+        app_py = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app.py"))
+        return f'"{exe_to_use}" "{app_py}" --autostart'
 
         # Running from source: use pythonw if available so no console window flashes
         python_exe = sys.executable
