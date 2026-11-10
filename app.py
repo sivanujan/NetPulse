@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 from datetime import datetime
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QIcon
@@ -19,7 +20,6 @@ from core.monitor import MonitorEngine
 from core.notifier import NotificationManager
 from core.stats import summarize
 from core.storage import NetRecord, SpeedRecord, Storage
-from ui.async_worker import AsyncWorker
 from ui.dashboard import DashboardWindow
 from ui.tray import NetPulseTrayIcon, create_tray_icon
 from ui.widget import DesktopWidget
@@ -201,7 +201,6 @@ class NetPulseApp:
 
     def _refresh_today_summary(self, force: bool = False) -> None:
         """Calculate and set today's uptime % and median ping for widget tooltip asynchronously."""
-        import time
         now = time.time()
         if not force and (now - self._last_summary_time) < 300.0:
             return  # Throttle to once every 5 minutes
@@ -209,36 +208,31 @@ class NetPulseApp:
 
         today_str = datetime.now().strftime("%Y-%m-%d")
 
-        def background_calc() -> Optional[Any]:
-            today_records = self.storage.get_net_records(date_str=today_str)
-            return summarize(today_records) if today_records else None
+        def thread_task() -> None:
+            try:
+                today_records = self.storage.get_net_records(date_str=today_str)
+                stats = summarize(today_records) if today_records else None
+                if stats:
+                    QTimer.singleShot(
+                        0,
+                        lambda: self.widget.set_today_summary(
+                            uptime_pct=stats.uptime_pct,
+                            median_ping=stats.ping_median,
+                            checks=stats.checks,
+                        ),
+                    )
+            except Exception:
+                pass
 
-        def on_done(stats: Optional[Any]) -> None:
-            self._summary_worker = None
-            if stats:
-                self.widget.set_today_summary(
-                    uptime_pct=stats.uptime_pct,
-                    median_ping=stats.ping_median,
-                    checks=stats.checks,
-                )
-
-        def on_error(err: str) -> None:
-            self._summary_worker = None
-
-        worker = AsyncWorker(background_calc)
-        self._summary_worker = worker
-        worker.signals.finished.connect(on_done)
-        worker.signals.error.connect(on_error)
-        QThreadPool.globalInstance().start(worker)
+        threading.Thread(target=thread_task, daemon=True, name="TodaySummaryThread").start()
 
     def _trigger_speed_test_async(self) -> None:
         """Run manual speed test in a worker thread so UI never freezes."""
         if self.engine.last_status == "DOWN":
-            self.tray.showMessage(
+            self.tray.show_toast(
+                "down",
                 "NetPulse Speed Test",
                 "Cannot run speed test: network is currently DOWN.",
-                QSystemTrayIcon.MessageIcon.Warning,
-                3000,
             )
             return
 
@@ -309,6 +303,14 @@ class NetPulseApp:
 
 def main() -> int:
     """Application entrypoint with single-instance lock and legacy monitor detection."""
+    # Register Windows Application User Model ID for rock-solid shell notifications
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("sivanujan.netpulse.monitor.1.0")
+        except Exception:
+            pass
+
     # 1. Enforce single-instance lock for NetPulse
     lock = SingleInstanceLock()
     if not lock.acquire():

@@ -8,6 +8,7 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QFont,
     QLinearGradient,
     QPainter,
     QPainterPath,
@@ -43,79 +44,80 @@ class SparklineWidget(QWidget):
     def paintEvent(self, event: QPaintEvent) -> None:
         """Custom paint routine using QPainter."""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        try:
+            painter.setRenderHint(QPainter.Antialiasing, True)
 
-        width = self.width()
-        height = self.height()
-        if width <= 0 or height <= 0:
-            return
+            width = self.width()
+            height = self.height()
+            if width <= 0 or height <= 0:
+                return
 
-        # Filter numeric values for range calculation
-        valid_nums = [v for v in self.values if v is not None and v >= 0]
-        if not valid_nums:
-            # Draw placeholder baseline
-            pen = QPen(QColor(60, 60, 65), 1, Qt.DashLine)
-            painter.setPen(pen)
-            painter.drawLine(0, height // 2, width, height // 2)
-            return
+            # Filter numeric values for range calculation
+            valid_nums = [v for v in self.values if v is not None and v >= 0]
+            if not valid_nums:
+                # Draw placeholder baseline
+                pen = QPen(QColor(60, 60, 65), 1, Qt.DashLine)
+                painter.setPen(pen)
+                painter.drawLine(0, height // 2, width, height // 2)
+                return
 
-        min_val = max(0.0, min(valid_nums) * 0.8)
-        max_val = max(max(valid_nums) * 1.15, min_val + 50.0)
-        val_range = max(1.0, max_val - min_val)
+            min_val = max(0.0, min(valid_nums) * 0.8)
+            max_val = max(max(valid_nums) * 1.15, min_val + 50.0)
+            val_range = max(1.0, max_val - min_val)
 
-        # Base color selection
-        line_color = STATUS_COLORS.get(self.status, STATUS_COLORS["OK"])
+            # Base color selection
+            line_color = STATUS_COLORS.get(self.status, STATUS_COLORS["OK"])
 
-        # Map points
-        n = len(self.values)
-        step = width / max(1, n - 1) if n > 1 else width
-        points: List[Optional[QPointF]] = []
+            # Map points
+            n = len(self.values)
+            step = width / max(1, n - 1) if n > 1 else width
+            points: List[Optional[QPointF]] = []
 
-        for i, val in enumerate(self.values):
-            if val is None:
-                points.append(None)
-            else:
-                x = i * step
-                # Invert y: higher ping = higher on graph
-                ratio = (val - min_val) / val_range
-                ratio = max(0.0, min(1.0, ratio))
-                y = height - (ratio * (height - 6)) - 3
-                points.append(QPointF(x, y))
-
-        # Build path
-        path = QPainterPath()
-        first_point = True
-        last_valid_point: Optional[QPointF] = None
-
-        for pt in points:
-            if pt is not None:
-                if first_point:
-                    path.moveTo(pt)
-                    first_point = False
+            for i, val in enumerate(self.values):
+                if val is None:
+                    points.append(None)
                 else:
-                    path.lineTo(pt)
-                last_valid_point = pt
+                    x = i * step
+                    # Invert y: higher ping = higher on graph
+                    ratio = (val - min_val) / val_range
+                    ratio = max(0.0, min(1.0, ratio))
+                    y = height - (ratio * (height - 6)) - 3
+                    points.append(QPointF(x, y))
 
-        if not path.isEmpty():
-            # Draw gradient fill under line
-            fill_path = QPainterPath(path)
-            fill_path.lineTo(points[-1].x() if points[-1] else width, height)
-            first_x = points[0].x() if points[0] else 0.0
-            fill_path.lineTo(first_x, height)
-            fill_path.closeSubpath()
+            # Build path
+            path = QPainterPath()
+            first_point = True
+            first_valid_x: Optional[float] = None
+            last_valid_point: Optional[QPointF] = None
 
-            grad = QLinearGradient(0, 0, 0, height)
-            grad.setColorAt(0.0, QColor(line_color.red(), line_color.green(), line_color.blue(), 55))
-            grad.setColorAt(1.0, QColor(line_color.red(), line_color.green(), line_color.blue(), 0))
-            painter.fillPath(fill_path, QBrush(grad))
+            for pt in points:
+                if pt is not None:
+                    if first_point:
+                        path.moveTo(pt)
+                        first_point = False
+                        first_valid_x = pt.x()
+                    else:
+                        path.lineTo(pt)
+                    last_valid_point = pt
 
-            # Draw the line
-            pen = QPen(line_color, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-            painter.setPen(pen)
-            painter.drawPath(path)
+            if not path.isEmpty() and last_valid_point is not None:
+                # Draw gradient fill under line
+                fill_path = QPainterPath(path)
+                fill_path.lineTo(last_valid_point.x(), height)
+                fill_path.lineTo(first_valid_x if first_valid_x is not None else 0.0, height)
+                fill_path.closeSubpath()
 
-            # Draw glowing end dot at latest value
-            if last_valid_point:
+                grad = QLinearGradient(0, 0, 0, height)
+                grad.setColorAt(0.0, QColor(line_color.red(), line_color.green(), line_color.blue(), 55))
+                grad.setColorAt(1.0, QColor(line_color.red(), line_color.green(), line_color.blue(), 0))
+                painter.fillPath(fill_path, QBrush(grad))
+
+                # Draw the line
+                pen = QPen(line_color, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+                painter.setPen(pen)
+                painter.drawPath(path)
+
+                # Draw glowing end dot at latest value
                 # Outer glow
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(QColor(line_color.red(), line_color.green(), line_color.blue(), 90))
@@ -124,22 +126,23 @@ class SparklineWidget(QWidget):
                 painter.setBrush(line_color)
                 painter.drawEllipse(last_valid_point, 2.2, 2.2)
 
-        # Draw tiny "max {val} ms" label at top-right
-        if valid_nums:
-            peak = max(valid_nums)
-            max_label = f"max {peak:.0f} ms"
-            font = painter.font()
-            font.setFamily("Segoe UI Variable")
-            font.setPixelSize(9)
-            font.setWeight(QFont.Medium)
-            painter.setFont(font)
-            painter.setPen(QColor(160, 164, 174))  # #A0A4AE high contrast
-            painter.drawText(
-                0,
-                0,
-                width - 2,
-                11,
-                Qt.AlignRight | Qt.AlignTop,
-                max_label,
-            )
-
+            # Draw tiny "max {val} ms" label at top-right
+            if valid_nums:
+                peak = max(valid_nums)
+                max_label = f"max {peak:.0f} ms"
+                font = painter.font()
+                font.setFamily("Segoe UI Variable")
+                font.setPixelSize(9)
+                font.setWeight(QFont.Medium)
+                painter.setFont(font)
+                painter.setPen(QColor(160, 164, 174))  # #A0A4AE high contrast
+                painter.drawText(
+                    0,
+                    0,
+                    width - 2,
+                    11,
+                    Qt.AlignRight | Qt.AlignTop,
+                    max_label,
+                )
+        finally:
+            painter.end()

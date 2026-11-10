@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from typing import Optional
+from typing import Callable, Optional
 
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import (
@@ -267,20 +267,26 @@ class NetPulseTrayIcon(QSystemTrayIcon):
         message: str,
         on_click: Optional[Callable[[], None]] = None,
     ) -> None:
-        """Display native Windows toast notification via system tray."""
+        """Display native Windows toast notification via system tray with crash-protection guards."""
         if self.config.do_not_disturb:
             return
 
-        icon_map = {
-            "down": QSystemTrayIcon.MessageIcon.Critical,
-            "restored": QSystemTrayIcon.MessageIcon.Information,
-            "bad": QSystemTrayIcon.MessageIcon.Warning,
-            "network_change": QSystemTrayIcon.MessageIcon.Information,
-            "high_upload": QSystemTrayIcon.MessageIcon.Warning,
-        }
-        msg_icon = icon_map.get(kind, QSystemTrayIcon.MessageIcon.Information)
-        self._last_toast_action = on_click
-        self.showMessage(title, message, msg_icon, 5000)
+        try:
+            if not self.isVisible():
+                return
+
+            icon_map = {
+                "down": QSystemTrayIcon.MessageIcon.Critical,
+                "restored": QSystemTrayIcon.MessageIcon.Information,
+                "bad": QSystemTrayIcon.MessageIcon.Warning,
+                "network_change": QSystemTrayIcon.MessageIcon.Information,
+                "high_upload": QSystemTrayIcon.MessageIcon.Warning,
+            }
+            msg_icon = icon_map.get(kind, QSystemTrayIcon.MessageIcon.Information)
+            self._last_toast_action = on_click
+            self.showMessage(str(title), str(message), msg_icon, 5000)
+        except Exception:
+            pass
 
     def _on_widget_toggle(self, checked: bool) -> None:
         self.config.widget_visible = checked

@@ -7,7 +7,7 @@ import subprocess
 import sys
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -410,7 +410,6 @@ class SettingsPage(QWidget):
         self.settings_applied.emit()
 
         self.lbl_save_status.setText("✓ Settings saved and applied")
-        from PySide6.QtCore import QTimer
         QTimer.singleShot(3000, lambda: self.lbl_save_status.setText(""))
 
     def _open_data_folder(self) -> None:

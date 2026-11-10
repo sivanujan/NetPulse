@@ -28,7 +28,7 @@ class AsyncWorker(QRunnable):
         self.args = args
         self.kwargs = kwargs
         self.signals = WorkerSignals()
-        self.setAutoDelete(True)
+        self.setAutoDelete(False)  # NEVER let C++ QThreadPool delete Python objects
         AsyncWorker._active_workers.add(self)
 
     def run(self) -> None:

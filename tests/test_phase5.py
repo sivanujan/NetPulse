@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
+from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import QApplication
 
 from core.config import Config
